@@ -1,0 +1,65 @@
+version: '3.9'
+
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: garment_db
+    environment:
+      POSTGRES_USER:     garment
+      POSTGRES_PASSWORD: garment_pass
+      POSTGRES_DB:       garment_risk
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U garment -d garment_risk"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  ml-service:
+    build:
+      context: ./ml-service
+    container_name: garment_ml
+    ports:
+      - "5001:5001"
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+    container_name: garment_backend
+    ports:
+      - "4000:4000"
+    environment:
+      DATABASE_URL:  postgresql://garment:garment_pass@postgres:5432/garment_risk
+      ML_SERVICE_URL: http://ml-service:5001
+      FRONTEND_URL:  http://localhost:3000
+      PORT:          "4000"
+      NODE_ENV:      production
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ml-service:
+        condition: service_started
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_BACKEND_URL: http://localhost:4000
+    container_name: garment_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_BACKEND_URL: http://localhost:4000
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  pgdata:
